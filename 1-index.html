@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cooker Whistle Counter - a supervised kitchen aid</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--ink:#e2e8f0;--muted:#94a3b8;--accent:#f59e0b;--ok:#16a34a;--warn:#dc2626;--line:#334155}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding:16px}
+.wrap{max-width:640px;margin:0 auto}
+h1{font-size:1.5rem;margin-bottom:4px}
+.sub{color:var(--muted);font-size:.92rem;margin-bottom:14px}
+.banner{background:#451a03;border:1px solid #92400e;border-radius:10px;padding:12px 14px;font-size:.9rem;line-height:1.45;margin-bottom:16px}
+.banner b{color:#fbbf24}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.modes{display:flex;gap:8px;margin-bottom:14px}
+.mode-btn{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--ink);font-size:.95rem;cursor:pointer}
+.mode-btn.active{border-color:var(--accent);background:#29200a;color:#fde68a}
+.count{font-size:4.5rem;font-weight:800;text-align:center;line-height:1.1;color:#fde68a}
+.count-label{text-align:center;color:var(--muted);margin-bottom:8px}
+.target-row{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 14px;color:var(--muted);font-size:.95rem}
+.target-row input{width:64px;padding:6px;border-radius:8px;border:1px solid var(--line);background:#0b1220;color:var(--ink);font-size:1rem;text-align:center}
+.big-btn{display:block;width:100%;padding:18px;border:none;border-radius:12px;background:var(--accent);color:#1a1207;font-size:1.15rem;font-weight:700;cursor:pointer}
+.big-btn:active{transform:scale(.98)}
+.row{display:flex;gap:8px;margin-top:10px}
+.row button{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--ink);cursor:pointer;font-size:.95rem}
+.row button:hover{border-color:var(--accent)}
+.meter{height:14px;background:#0b1220;border-radius:8px;overflow:hidden;margin:10px 0 4px;border:1px solid var(--line)}
+.meter>div{height:100%;width:0%;background:linear-gradient(90deg,#16a34a,#f59e0b,#dc2626);transition:width .08s linear}
+.meter-cap{color:var(--muted);font-size:.8rem;display:flex;justify-content:space-between}
+label.small{display:block;color:var(--muted);font-size:.85rem;margin:12px 0 4px}
+input[type=range]{width:100%}
+.status{font-size:.9rem;color:var(--muted);margin-top:10px;min-height:1.3em}
+.status.err{color:#fca5a5}
+.status.hit{color:#86efac;font-weight:700}
+.flash{animation:fl .5s ease-in-out 6}
+@keyframes fl{50%{background:#7c2d12}}
+.hidden{display:none}
+.timer{text-align:center;color:var(--muted);font-size:.9rem;margin-top:6px}
+footer{color:var(--muted);font-size:.8rem;margin-top:18px;line-height:1.5}
+footer a{color:#93c5fd}
+ul.limits{margin:6px 0 0 18px;color:var(--muted);font-size:.82rem;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🍲 Cooker Whistle Counter</h1>
+  <p class="sub">Counts pressure-cooker whistles and alerts you at your target - so rice and dal don't overcook while you're nearby doing something else.</p>
+
+  <div class="banner"><b>A cooking aid, not a safety device.</b> Microphone detection can miss whistles or count background noise (TV, pressure horns, mixers). Stay within earshot of a cooker in use, and never leave a pressure cooker unattended relying on this page. When in doubt, use manual tap mode.</div>
+
+  <div class="modes">
+    <button class="mode-btn active" id="modeAuto" type="button">🎤 Auto (microphone)</button>
+    <button class="mode-btn" id="modeManual" type="button">👆 Manual tap</button>
+  </div>
+
+  <div class="card">
+    <div class="count" id="count">0</div>
+    <div class="count-label">whistles counted</div>
+    <div class="target-row">Alert me at <input id="target" type="number" min="1" max="50" value="4"> whistles</div>
+    <div class="timer" id="timer">Session not started</div>
+  </div>
+
+  <div class="card" id="autoPanel">
+    <button class="big-btn" id="listenBtn" type="button">Start listening</button>
+    <div class="meter"><div id="meterFill"></div></div>
+    <div class="meter-cap"><span>mic level</span><span id="bandReadout">band ratio: -</span></div>
+    <label class="small" for="sens">Sensitivity <span id="sensVal">medium</span> (lower it if fans/TV trigger counts, raise it if whistles are missed)</label>
+    <input type="range" id="sens" min="1" max="10" value="5">
+    <div class="status" id="status">Microphone stays on this device: audio is analysed live in your browser, never recorded or uploaded. Keep this tab open and the screen on.</div>
+  </div>
+
+  <div class="card hidden" id="manualPanel">
+    <button class="big-btn" id="tapBtn" type="button">Count a whistle 👆</button>
+    <div class="row">
+      <button id="minusBtn" type="button">−1 (mistap)</button>
+      <button id="resetBtn2" type="button">Reset</button>
+    </div>
+    <div class="status" id="statusM">Tap once per whistle you hear. Most reliable mode.</div>
+  </div>
+
+  <div class="row">
+    <button id="resetBtn" type="button">Reset session</button>
+  </div>
+
+  <div class="card">
+    <b style="font-size:.9rem">Honest limits</b>
+    <ul class="limits">
+      <li>Works only while this tab is open, the screen stays on, and mic permission is granted.</li>
+      <li>Background noise (pressure horns, TV, mixi, another cooker) can add false counts; loud kitchens can mask real whistles. Check the count against your ears.</li>
+      <li>Whistle loudness varies by cooker and stove. Do a quick test whistle near the mic before relying on auto mode for that session.</li>
+      <li>On phones, some browsers pause the mic when the screen locks - manual mode still works for counting after.</li>
+    </ul>
+  </div>
+
+  <footer>
+    Built after a Reddit request: "an app to count the number of whistles a cooker has completed while cooking" -
+    <a href="https://www.reddit.com/r/developersIndia/comments/1isvhnk/whats_your_i_wish_there_was_an_app_for_that/" rel="noopener">source thread</a>.
+    Everything runs in your browser; no audio or data leaves your device.
+  </footer>
+</div>
+
+<script>
+"use strict";
+//TESTABLE-START
+// Whistle detection: band-energy ratio state machine.
+// A pressure-cooker whistle is a loud, sustained, narrowband burst.
+// We measure the share of spectral energy inside a whistle band (1.2-4.5 kHz)
+// against total energy, plus an absolute band level to reject quiet rooms.
+function bandMetrics(freqData, sampleRate, fftSize, bandLo, bandHi){
+  const binHz = sampleRate / fftSize;
+  const lo = Math.max(1, Math.floor(bandLo / binHz));
+  const hi = Math.min(freqData.length - 1, Math.ceil(bandHi / binHz));
+  let band = 0, total = 0;
+  for (let i = 0; i < freqData.length; i++){
+    // freqData values are dB (negative). Convert to linear power.
+    const p = Math.pow(10, freqData[i] / 10);
+    total += p;
+    if (i >= lo && i <= hi) band += p;
+  }
+  if (total <= 0) return { ratio: 0, bandDb: -Infinity };
+  return { ratio: band / total, bandDb: 10 * Math.log10(band + 1e-12) };
+}
+
+// State machine: whistle starts after `onsetFrames` consecutive loud-band frames,
+// ends after `releaseFrames` quiet frames; counted once per onset, with a
+// refractory period to avoid double counting one long whistle.
+function makeWhistleDetector(opts){
+  const o = Object.assign({ onsetFrames: 4, releaseFrames: 10, refractoryFrames: 30, ratioThresh: 0.55, bandDbThresh: -48 }, opts || {});
+  let hot = 0, cold = 0, refractory = 0, inWhistle = false, count = 0;
+  return {
+    frame(isWhistleLike){
+      if (refractory > 0) refractory--;
+      if (isWhistleLike){
+        hot++; cold = 0;
+        if (!inWhistle && hot >= o.onsetFrames && refractory === 0){
+          inWhistle = true; count++; refractory = o.refractoryFrames;
+        }
+      } else {
+        cold++; hot = 0;
+        if (inWhistle && cold >= o.releaseFrames){ inWhistle = false; }
+      }
+      return count;
+    },
+    get count(){ return count; },
+    get inWhistle(){ return inWhistle; },
+    reset(){ hot = 0; cold = 0; refractory = 0; inWhistle = false; count = 0; }
+  };
+}
+//TESTABLE-END
+
+(function(){
+  const $ = id => document.getElementById(id);
+  const countEl = $("count"), timerEl = $("timer"), statusEl = $("status");
+  let count = 0, target = 4, startTs = null, timerInt = null;
+
+  function fmt(ms){ const s = Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); }
+  function startClock(){ if (startTs) return; startTs = Date.now(); timerInt = setInterval(()=>{ timerEl.textContent = "Session " + fmt(Date.now()-startTs); }, 1000); timerEl.textContent = "Session 00:00"; }
+  function stopClock(){ clearInterval(timerInt); startTs = null; }
+  function alarm(){
+    document.body.classList.remove("flash"); void document.body.offsetWidth; document.body.classList.add("flash");
+    try{
+      const ctx = alarm.ctx || (alarm.ctx = new (window.AudioContext||window.webkitAudioContext)());
+      [0, .25, .5].forEach(t=>{ const osc = ctx.createOscillator(), g = ctx.createGain(); osc.frequency.value = 880; osc.connect(g); g.connect(ctx.destination); const now = ctx.currentTime + t; g.gain.setValueAtTime(.001, now); g.gain.exponentialRampToValueAtTime(.4, now+.02); g.gain.exponentialRampToValueAtTime(.001, now+.22); osc.start(now); osc.stop(now+.25); });
+    }catch(e){}
+    if (navigator.vibrate) navigator.vibrate([200,100,200,100,300]);
+  }
+  function setCount(n, via){
+    count = n; countEl.textContent = count;
+    if (count >= target && target > 0){
+      const s = via === "auto" ? statusEl : $("statusM");
+      s.textContent = "Target reached: " + count + " whistles. Check your cooker now."; s.className = "status hit";
+      alarm();
+    }
+  }
+  $("target").addEventListener("input", e=>{ target = Math.max(1, parseInt(e.target.value)||1); });
+
+  // ---- mode switching ----
+  const autoPanel = $("autoPanel"), manualPanel = $("manualPanel");
+  function setMode(m){
+    $("modeAuto").classList.toggle("active", m==="auto");
+    $("modeManual").classList.toggle("active", m==="manual");
+    autoPanel.classList.toggle("hidden", m!=="auto");
+    manualPanel.classList.toggle("hidden", m!=="manual");
+    if (m!=="auto") stopListening();
+  }
+  $("modeAuto").addEventListener("click", ()=>setMode("auto"));
+  $("modeManual").addEventListener("click", ()=>setMode("manual"));
+
+  // ---- manual mode ----
+  $("tapBtn").addEventListener("click", ()=>{ startClock(); setCount(count+1, "manual"); });
+  $("minusBtn").addEventListener("click", ()=>{ if(count>0){ count--; countEl.textContent = count; } });
+
+  // ---- auto mode ----
+  let audioCtx=null, analyser=null, stream=null, raf=null, detector=null;
+  const listenBtn = $("listenBtn"), meterFill = $("meterFill"), bandReadout = $("bandReadout");
+  function sensParams(v){ // v 1..10 -> thresholds
+    const ratioThresh = 0.70 - v*0.03;        // 0.67 .. 0.40
+    const bandDbThresh = -40 - v*2;           // -42 .. -60
+    return { ratioThresh, bandDbThresh };
+  }
+  $("sens").addEventListener("input", e=>{
+    const v = +e.target.value;
+    $("sensVal").textContent = v<=3?"low":v<=7?"medium":"high";
+    if (detector){ const p = sensParams(v); curRatio = p.ratioThresh; curDb = p.bandDbThresh; }
+  });
+  let curRatio = 0.55, curDb = -50;
+
+  async function startListening(){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      statusEl.textContent = "This browser has no microphone access. Use manual tap mode instead."; statusEl.className = "status err"; return;
+    }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:false, noiseSuppression:false } });
+    }catch(err){
+      statusEl.textContent = "Microphone permission was denied or unavailable. Use manual tap mode instead."; statusEl.className = "status err"; return;
+    }
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.5;
+    src.connect(analyser);
+    const p = sensParams(+$("sens").value); curRatio = p.ratioThresh; curDb = p.bandDbThresh;
+    detector = makeWhistleDetector({ onsetFrames:4, releaseFrames:10, refractoryFrames:30, ratioThresh:curRatio, bandDbThresh:curDb });
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    listenBtn.textContent = "Stop listening";
+    statusEl.textContent = "Listening... keep this tab open and the phone awake near (not on) the stove.";
+    statusEl.className = "status"; startClock();
+    const fftSize = analyser.fftSize;
+    (function loop(){
+      if (!analyser) return;
+      analyser.getByteFrequencyData(buf);
+      const m = bandMetrics(buf, audioCtx.sampleRate, fftSize, 1200, 4500);
+      const like = m.ratio >= curRatio && m.bandDb >= curDb;
+      const n = detector.frame(like);
+      if (n !== count) setCount(n, "auto");
+      // level meter from average dB
+      let sum=0; for(let i=0;i<buf.length;i++) sum+=buf[i];
+      const avg = sum/buf.length; // 0..255
+      meterFill.style.width = Math.min(100, avg/1.6) + "%";
+      bandReadout.textContent = "band ratio: " + m.ratio.toFixed(2) + " / need " + curRatio.toFixed(2);
+      raf = requestAnimationFrame(loop);
+    })();
+  }
+  function stopListening(){
+    if (raf) cancelAnimationFrame(raf); raf=null;
+    if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    if (audioCtx){ audioCtx.close().catch(()=>{}); audioCtx=null; }
+    analyser=null; meterFill.style.width="0%"; bandReadout.textContent="band ratio: -";
+    listenBtn.textContent = "Start listening";
+  }
+  listenBtn.addEventListener("click", ()=>{ stream ? stopListening() : startListening(); });
+
+  function resetAll(){ setCount0(); }
+  function setCount0(){ count=0; countEl.textContent="0"; if(detector) detector.reset(); stopClock(); timerEl.textContent="Session not started"; statusEl.className="status"; statusEl.textContent="Microphone stays on this device: audio is analysed live in your browser, never recorded or uploaded. Keep this tab open and the screen on."; $("statusM").className="status"; $("statusM").textContent="Tap once per whistle you hear. Most reliable mode."; }
+  $("resetBtn").addEventListener("click", resetAll);
+  $("resetBtn2").addEventListener("click", resetAll);
+})();
+</script>
+</body>
+</html>
